@@ -30,9 +30,7 @@ def _instrument_to_contract(instrument: Instrument) -> Contract:
         return Bond(symbol=instrument.symbol)  # type: ignore[no-untyped-call]
     if instrument.asset_class == AssetClass.FX:
         return Forex(instrument.symbol)
-    raise UnsupportedAssetClassError(
-        f"unsupported asset class: {instrument.asset_class!r}"
-    )
+    raise UnsupportedAssetClassError(f"unsupported asset class: {instrument.asset_class!r}")
 
 
 class IBKRMarketDataProvider(MarketDataProvider):

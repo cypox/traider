@@ -40,15 +40,11 @@ class IBKRMetadataProvider(MetadataProvider):
             IbStock(symbol, exchange)
         )
         if not results:
-            raise InstrumentNotFoundError(
-                f"instrument not found: {symbol!r} on {exchange!r}"
-            )
+            raise InstrumentNotFoundError(f"instrument not found: {symbol!r} on {exchange!r}")
         cd = results[0]
         contract = cd.contract
         if contract is None:
-            raise InstrumentNotFoundError(
-                f"instrument not found: {symbol!r} on {exchange!r}"
-            )
+            raise InstrumentNotFoundError(f"instrument not found: {symbol!r} on {exchange!r}")
         return Instrument(
             symbol=contract.symbol,
             asset_class=AssetClass.EQUITY,
@@ -59,13 +55,9 @@ class IBKRMetadataProvider(MetadataProvider):
     async def get_contract_details(self, instrument: Instrument) -> ContractDetails:
         """Retrieve full contract details for an instrument."""
         ib_contract = _instrument_to_contract(instrument)
-        results: list[IbContractDetails] = await self._ib.reqContractDetailsAsync(
-            ib_contract
-        )
+        results: list[IbContractDetails] = await self._ib.reqContractDetailsAsync(ib_contract)
         if not results:
-            raise InstrumentNotFoundError(
-                f"contract details not found for {instrument.symbol!r}"
-            )
+            raise InstrumentNotFoundError(f"contract details not found for {instrument.symbol!r}")
 
         # Deduplicate by conId to avoid processing the same contract twice.
         seen_con_ids: set[int] = set()
@@ -79,9 +71,7 @@ class IBKRMetadataProvider(MetadataProvider):
                 unique_results.append(cd)
 
         if not unique_results:
-            raise InstrumentNotFoundError(
-                f"contract details not found for {instrument.symbol!r}"
-            )
+            raise InstrumentNotFoundError(f"contract details not found for {instrument.symbol!r}")
 
         # For bonds (or any multi-result case), pick nearest future maturity.
         if len(unique_results) > 1:

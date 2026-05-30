@@ -43,9 +43,7 @@ def _bond(symbol: str = "T") -> Instrument:
 
 
 def _fx(symbol: str = "EURUSD") -> Instrument:
-    return Instrument(
-        symbol=symbol, asset_class=AssetClass.FX, currency="USD", exchange="IDEALPRO"
-    )
+    return Instrument(symbol=symbol, asset_class=AssetClass.FX, currency="USD", exchange="IDEALPRO")
 
 
 def _crypto(symbol: str = "BTC") -> Instrument:
@@ -78,9 +76,7 @@ def mock_ib() -> MagicMock:
 @pytest.fixture
 def provider(event_bus: EventBus, mock_ib: MagicMock) -> IBKRMarketDataProvider:
     with patch("bot.providers.ibkr.market_data.IB", return_value=mock_ib):
-        p = IBKRMarketDataProvider(
-            host="127.0.0.1", port=7497, client_id=1, event_bus=event_bus
-        )
+        p = IBKRMarketDataProvider(host="127.0.0.1", port=7497, client_id=1, event_bus=event_bus)
     return p
 
 
@@ -387,9 +383,7 @@ class TestIBKRMetadataProvider:
         with pytest.raises(InstrumentNotFoundError, match="SPY"):
             await self._make_provider(mock_ib).get_contract_details(_equity("SPY"))
 
-    async def test_get_contract_details_deduplicates_by_con_id(
-        self, mock_ib: MagicMock
-    ) -> None:
+    async def test_get_contract_details_deduplicates_by_con_id(self, mock_ib: MagicMock) -> None:
         cd1 = IbContractDetails()
         cd1.longName = "SPDR S&P 500 ETF"
         cd1.minTick = 0.01
