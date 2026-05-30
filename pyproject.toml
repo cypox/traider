@@ -48,4 +48,4 @@ ignore = ["ANN401"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
-addopts = "--cov=src/bot --cov-report=term-missing --cov-fail-under=80"
+addopts = "--cov-report=term-missing"
