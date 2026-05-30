@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from bot.analytics.errors import ConvergenceError
 from bot.core.instruments import AssetClass, Instrument
 from bot.core.money import Money
 from bot.events.bus import EventBus
@@ -456,3 +457,143 @@ class TestIsolation:
                 )
             )
         assert len(orders) == 0
+
+
+# ---------------------------------------------------------------------------
+# Bond analytics — new tests for Prompt 7
+# ---------------------------------------------------------------------------
+
+
+class TestOnQuoteBondAnalytics:
+    async def test_payload_contains_analytics_fields(
+        self,
+        strategy: DiagnosticStrategy,
+        event_bus: EventBus,
+        zn: Instrument,
+    ) -> None:
+        await strategy.refresh_metadata()
+        received: list[DiagnosticsEvent] = []
+        event_bus.subscribe(DiagnosticsEvent, received.append)
+        # Use a realistic price near par (ZN face_value=1000)
+        event_bus.publish(_quote(zn, bid="980.00", ask="982.00"))
+        p = received[0].payload
+        assert "ytm_pct" in p
+        assert "dv01_usd" in p
+        assert "macaulay_duration_years" in p
+        assert "modified_duration_years" in p
+        assert "discount_factor" in p
+        assert "convexity" in p
+        assert "days_to_maturity" in p
+
+    async def test_analytics_values_are_native_types_not_decimal(
+        self,
+        strategy: DiagnosticStrategy,
+        event_bus: EventBus,
+        zn: Instrument,
+    ) -> None:
+        await strategy.refresh_metadata()
+        received: list[DiagnosticsEvent] = []
+        event_bus.subscribe(DiagnosticsEvent, received.append)
+        event_bus.publish(_quote(zn, bid="980.00", ask="982.00"))
+        p = received[0].payload
+        assert isinstance(p["ytm_pct"], float)
+        assert isinstance(p["dv01_usd"], float)
+        assert isinstance(p["macaulay_duration_years"], float)
+        assert isinstance(p["modified_duration_years"], float)
+        assert isinstance(p["discount_factor"], float)
+        assert isinstance(p["convexity"], float)
+        assert isinstance(p["days_to_maturity"], int)
+
+    async def test_discount_bond_positive_ytm_pct(
+        self,
+        strategy: DiagnosticStrategy,
+        event_bus: EventBus,
+        zn: Instrument,
+    ) -> None:
+        await strategy.refresh_metadata()
+        received: list[DiagnosticsEvent] = []
+        event_bus.subscribe(DiagnosticsEvent, received.append)
+        # Price well below face_value=1000 → discount bond → ytm > coupon
+        event_bus.publish(_quote(zn, bid="950.00", ask="952.00"))
+        assert received[0].payload["ytm_pct"] > 0  # type: ignore[operator]
+
+    async def test_no_signal_or_order_events_with_analytics(
+        self,
+        strategy: DiagnosticStrategy,
+        event_bus: EventBus,
+        zn: Instrument,
+    ) -> None:
+        await strategy.refresh_metadata()
+        signals: list[SignalEvent] = []
+        orders: list[OrderEvent] = []
+        event_bus.subscribe(SignalEvent, signals.append)
+        event_bus.subscribe(OrderEvent, orders.append)
+        event_bus.publish(_quote(zn, bid="980.00", ask="982.00"))
+        assert len(signals) == 0
+        assert len(orders) == 0
+
+    async def test_matured_bond_skips_analytics_and_warns(
+        self,
+        event_bus: EventBus,
+        spy: Instrument,
+        zn: Instrument,
+        spy_details: ContractDetails,
+    ) -> None:
+        matured_details = ContractDetails(
+            instrument=zn,
+            full_name="Matured T-Note",
+            coupon=Decimal("0.025"),
+            maturity_date=date(2020, 1, 1),
+            face_value=Money(Decimal("1000"), "USD"),
+            tick_size=Decimal("0.015625"),
+            multiplier=Decimal("1000"),
+        )
+        provider = MockMetadataProvider({"SPY": spy_details, "ZN": matured_details})
+        strat = DiagnosticStrategy(
+            event_bus=event_bus,
+            metadata_provider=provider,
+            instruments=[spy, zn],
+        )
+        await strat.refresh_metadata()
+        received: list[DiagnosticsEvent] = []
+        event_bus.subscribe(DiagnosticsEvent, received.append)
+        mock_logger = MagicMock()
+        with patch("bot.strategies.diagnostic.strategy._logger", mock_logger):
+            event_bus.publish(_quote(zn, bid="980.00", ask="982.00"))
+        assert len(received) == 1
+        assert "ytm_pct" not in received[0].payload
+        mock_logger.warning.assert_called_once()
+
+    async def test_analytics_error_is_caught_and_warns(
+        self,
+        strategy: DiagnosticStrategy,
+        event_bus: EventBus,
+        zn: Instrument,
+    ) -> None:
+        await strategy.refresh_metadata()
+        received: list[DiagnosticsEvent] = []
+        event_bus.subscribe(DiagnosticsEvent, received.append)
+        mock_logger = MagicMock()
+        with (
+            patch(
+                "bot.strategies.diagnostic.strategy.compute_ytm",
+                side_effect=ConvergenceError("no convergence"),
+            ),
+            patch("bot.strategies.diagnostic.strategy._logger", mock_logger),
+        ):
+            event_bus.publish(_quote(zn, bid="980.00", ask="982.00"))
+        assert len(received) == 1
+        assert "ytm_pct" not in received[0].payload
+        mock_logger.warning.assert_called_once()
+
+    async def test_equity_payload_does_not_contain_ytm(
+        self,
+        strategy: DiagnosticStrategy,
+        event_bus: EventBus,
+        spy: Instrument,
+    ) -> None:
+        await strategy.refresh_metadata()
+        received: list[DiagnosticsEvent] = []
+        event_bus.subscribe(DiagnosticsEvent, received.append)
+        event_bus.publish(_quote(spy))
+        assert "ytm_pct" not in received[0].payload

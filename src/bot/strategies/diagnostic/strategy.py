@@ -1,7 +1,19 @@
 """Diagnostic strategy for validating the full data pipeline."""
 
+from datetime import date
+from decimal import Decimal
+
 import structlog
 
+from bot.analytics.errors import AnalyticsError
+from bot.analytics.fixed_income import (
+    compute_convexity,
+    compute_discount_factor,
+    compute_dv01,
+    compute_macaulay_duration,
+    compute_modified_duration,
+    compute_ytm,
+)
 from bot.core.instruments import Instrument
 from bot.events.bus import EventBus
 from bot.events.diagnostics import DiagnosticsEvent
@@ -66,6 +78,69 @@ class DiagnosticStrategy(Strategy):
                 has_coupon=details.coupon is not None,
                 has_maturity=details.maturity_date is not None,
             )
+
+            if (
+                details.coupon is not None
+                and details.maturity_date is not None
+                and details.face_value is not None
+            ):
+                days_to_maturity = (details.maturity_date - date.today()).days
+                if days_to_maturity <= 0:
+                    _logger.warning(
+                        "bond matured or expiring today, skipping analytics",
+                        strategy="diagnostic",
+                        symbol=event.instrument.symbol,
+                    )
+                else:
+                    price_pct = event.mid * Decimal("100") / details.face_value.amount
+                    try:
+                        ytm = compute_ytm(
+                            face_value=details.face_value.amount,
+                            coupon_rate=details.coupon,
+                            price_pct=price_pct,
+                            days_to_maturity=days_to_maturity,
+                        )
+                        discount_factor = compute_discount_factor(ytm, days_to_maturity)
+                        macaulay = compute_macaulay_duration(
+                            face_value=details.face_value.amount,
+                            coupon_rate=details.coupon,
+                            ytm=ytm,
+                            days_to_maturity=days_to_maturity,
+                        )
+                        modified = compute_modified_duration(macaulay, ytm)
+                        dv01 = compute_dv01(details.face_value.amount, modified, price_pct)
+                        convexity = compute_convexity(
+                            face_value=details.face_value.amount,
+                            coupon_rate=details.coupon,
+                            ytm=ytm,
+                            days_to_maturity=days_to_maturity,
+                        )
+                        _logger.info(
+                            "bond analytics",
+                            strategy="diagnostic",
+                            symbol=event.instrument.symbol,
+                            days_to_maturity=days_to_maturity,
+                            ytm_pct=float(ytm * 100),
+                            discount_factor=float(discount_factor),
+                            macaulay_duration_years=float(macaulay),
+                            modified_duration_years=float(modified),
+                            dv01_usd=float(dv01),
+                            convexity=float(convexity),
+                        )
+                        payload["days_to_maturity"] = days_to_maturity
+                        payload["ytm_pct"] = float(ytm * 100)
+                        payload["discount_factor"] = float(discount_factor)
+                        payload["macaulay_duration_years"] = float(macaulay)
+                        payload["modified_duration_years"] = float(modified)
+                        payload["dv01_usd"] = float(dv01)
+                        payload["convexity"] = float(convexity)
+                    except AnalyticsError as exc:
+                        _logger.warning(
+                            "fixed income analytics failed",
+                            symbol=event.instrument.symbol,
+                            error=str(exc),
+                        )
+
         else:
             _logger.info(
                 "quote received",
