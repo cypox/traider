@@ -1,11 +1,12 @@
 """Portfolio lifecycle events."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from decimal import Decimal
 
 from bot.core.instruments import Instrument
 from bot.core.money import Money
 from bot.core.positions import ApprovedPosition, TargetPosition
+from bot.core.signals import Direction
 from bot.events.base import BaseEvent
 
 # NOTE: super().__post_init__() is broken with frozen+slots dataclass inheritance
@@ -35,6 +36,7 @@ class FillEvent(BaseEvent):
     filled_quantity: Decimal
     fill_price: Money
     commission: Money
+    side: Direction = field(kw_only=True)  # LONG = buy, SHORT = sell
 
     def __post_init__(self) -> None:
         BaseEvent.__post_init__(self)

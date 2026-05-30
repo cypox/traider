@@ -345,6 +345,7 @@ def test_fill_event_valid() -> None:
         filled_quantity=Decimal("5"),
         fill_price=Money(Decimal("101"), "USD"),
         commission=Money(Decimal("1"), "USD"),
+        side=Direction.LONG,
     )
     assert e.filled_quantity == Decimal("5")
 
@@ -359,6 +360,7 @@ def test_fill_event_zero_quantity_raises() -> None:
             filled_quantity=Decimal("0"),
             fill_price=Money(Decimal("101"), "USD"),
             commission=Money(Decimal("1"), "USD"),
+            side=Direction.LONG,
         )
 
 
