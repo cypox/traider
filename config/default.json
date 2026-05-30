@@ -1,0 +1,20 @@
+{
+  "ibkr": {
+    "host": "127.0.0.1",
+    "port": 7497,
+    "client_id": 1
+  },
+  "logging": {
+    "level": "INFO",
+    "format": "human"
+  },
+  "risk": {
+    "max_position_usd": 10000,
+    "max_portfolio_var_usd": 500,
+    "max_drawdown_pct": 0.05
+  },
+  "backtest": {
+    "slippage_bps": 5,
+    "commission_per_share": 0.005
+  }
+}

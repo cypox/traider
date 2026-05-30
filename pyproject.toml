@@ -9,7 +9,6 @@ requires-python = ">=3.13"
 dependencies = [
     "ib_async>=1.0",
     "pydantic>=2.0",
-    "tomli>=2.0",
     "structlog>=24.0",
     "rich>=13.0",
     "numpy>=1.26",

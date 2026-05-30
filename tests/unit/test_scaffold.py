@@ -40,7 +40,7 @@ def test_all_packages_importable(package_name: str) -> None:
     importlib.import_module(package_name)
 
 
-def test_default_toml_parses() -> None:
+def test_default_json_parses() -> None:
     config = load_config()
     assert isinstance(config, dict)
 
