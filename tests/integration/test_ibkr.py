@@ -197,6 +197,33 @@ class TestIBKRConnection:
     def test_is_connected_initially_false(self, provider: IBKRMarketDataProvider) -> None:
         assert provider.is_connected is False
 
+    async def test_connect_retries_with_next_client_id_on_timeout(
+        self, event_bus: EventBus
+    ) -> None:
+        ib = MagicMock()
+        ib.connectAsync = AsyncMock(side_effect=[TimeoutError(), None])
+        ib.disconnect = MagicMock()
+        with patch("bot.providers.ibkr.market_data.IB", return_value=ib):
+            p = IBKRMarketDataProvider(
+                host="127.0.0.1", port=7497, client_id=1, event_bus=event_bus
+            )
+        await p.connect()
+        assert p.is_connected is True
+        assert p._client_id == 2  # retried with client_id+1
+        assert ib.connectAsync.call_count == 2
+
+    async def test_connect_raises_after_three_timeouts(self, event_bus: EventBus) -> None:
+        ib = MagicMock()
+        ib.connectAsync = AsyncMock(side_effect=TimeoutError())
+        ib.disconnect = MagicMock()
+        with patch("bot.providers.ibkr.market_data.IB", return_value=ib):
+            p = IBKRMarketDataProvider(
+                host="127.0.0.1", port=7497, client_id=1, event_bus=event_bus
+            )
+        with pytest.raises(TimeoutError):
+            await p.connect()
+        assert ib.connectAsync.call_count == 3
+
 
 # ---------------------------------------------------------------------------
 # IBKRMarketDataProvider – subscriptions

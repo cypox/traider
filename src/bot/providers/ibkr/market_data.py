@@ -38,17 +38,38 @@ class IBKRMarketDataProvider(MarketDataProvider):
         self._handler_registered = False
 
     async def connect(self) -> None:
-        """Connect to TWS/Gateway."""
-        await self._ib.connectAsync(self._host, self._port, clientId=self._client_id)
-        self._is_connected = True
-        _logger.info(
-            "IBKR connected",
-            host=self._host,
-            port=self._port,
-            client_id=self._client_id,
+        """Connect to TWS/Gateway.
+
+        If the configured client_id is already in use (e.g. after an unclean
+        notebook shutdown), retries transparently with client_id+1 and client_id+2.
+        """
+        for attempt in range(3):
+            cid = self._client_id + attempt
+            try:
+                await self._ib.connectAsync(self._host, self._port, clientId=cid)
+            except TimeoutError:
+                _logger.warning(
+                    "IBKR connect timed out — client_id may be in use, retrying",
+                    tried_client_id=cid,
+                )
+                self._ib.disconnect()
+                continue
+            self._client_id = cid
+            self._is_connected = True
+            _logger.info(
+                "IBKR connected",
+                host=self._host,
+                port=self._port,
+                client_id=cid,
+            )
+            if self._port in (7496, 4001):
+                _logger.warning("LIVE TRADING PORT ACTIVE", host=self._host, port=self._port)
+            return
+        msg = (
+            f"Failed to connect to IBKR after 3 attempts "
+            f"(tried client_ids {self._client_id} to {self._client_id + 2})"
         )
-        if self._port in (7496, 4001):
-            _logger.warning("LIVE TRADING PORT ACTIVE", host=self._host, port=self._port)
+        raise TimeoutError(msg)
 
     async def disconnect(self) -> None:
         """Disconnect from TWS/Gateway."""
