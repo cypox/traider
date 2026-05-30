@@ -10,7 +10,6 @@ from pathlib import Path
 from typing import Any
 
 import structlog
-from ib_async import IB
 
 from bot.config.loader import load_config
 from bot.core.instruments import AssetClass, Instrument
@@ -23,6 +22,7 @@ from bot.portfolio.construction import (
     SignalCombinationMethod,
 )
 from bot.portfolio.state import PortfolioState
+from bot.providers.ibkr.execution import IBKRExecutionProvider
 from bot.providers.ibkr.market_data import IBKRMarketDataProvider
 from bot.providers.ibkr.metadata import IBKRMetadataProvider
 from bot.risk.config import RiskConfig
@@ -98,13 +98,22 @@ async def run(config_path: Path | None = None) -> None:
         portfolio_state=portfolio_state,
     )
 
-    ib = IB()
-    metadata_provider = IBKRMetadataProvider(ib=ib, event_bus=event_bus)
-
+    # IBKRMarketDataProvider owns the IB instance — no IB object anywhere else.
     market_data_provider = IBKRMarketDataProvider(
         host=str(config["ibkr"]["host"]),
         port=int(config["ibkr"]["port"]),
         client_id=int(config["ibkr"]["client_id"]),
+        event_bus=event_bus,
+    )
+
+    # Sibling providers share the IB instance via market_data_provider.ib.
+    metadata_provider = IBKRMetadataProvider(
+        market_data_provider=market_data_provider,
+        event_bus=event_bus,
+    )
+
+    execution_provider = IBKRExecutionProvider(
+        market_data_provider=market_data_provider,
         event_bus=event_bus,
     )
 
@@ -114,19 +123,20 @@ async def run(config_path: Path | None = None) -> None:
         instruments=list(_STARTER_INSTRUMENTS),
     )
 
-    await diagnostic_strategy.refresh_metadata()
-
-    # Keep references so subscriptions stay alive (risk_engine, portfolio_construction).
+    # Keep references so subscriptions stay alive.
     _keep_alive = (risk_engine, portfolio_construction)
 
     execution_engine = ExecutionEngine(
         event_bus=event_bus,
-        execution_provider=_DummyExecutionProvider(),
+        execution_provider=execution_provider,
         portfolio_state=portfolio_state,
     )
 
     await market_data_provider.connect()
+    await execution_provider.connect()
+    await diagnostic_strategy.refresh_metadata()
     await market_data_provider.subscribe_quotes(list(_STARTER_INSTRUMENTS))
+    await market_data_provider.subscribe_bars(list(_STARTER_INSTRUMENTS), interval_seconds=5)
 
     stop_event = asyncio.Event()
 
@@ -140,10 +150,11 @@ async def run(config_path: Path | None = None) -> None:
     _logger.info("Runner ready, waiting for market data")
     await stop_event.wait()
 
+    await execution_provider.disconnect()
     await market_data_provider.disconnect()
     _logger.info("Runner stopped cleanly")
 
-    # Satisfy type checker — these are held to prevent GC of subscribed components.
+    # Satisfy type checker — held to prevent GC of subscribed components.
     del _keep_alive, execution_engine, diagnostic_strategy
 
 
@@ -167,37 +178,3 @@ def main() -> None:
         asyncio.run(run(config_path=config_path))
     except KeyboardInterrupt:
         pass
-
-
-# ---------------------------------------------------------------------------
-# Internal stub — replaced by a real IBKRExecutionProvider in a later prompt.
-# ---------------------------------------------------------------------------
-
-from bot.core.execution import ExecutionIntent  # noqa: E402
-from bot.providers.base import ExecutionProvider  # noqa: E402
-
-
-class _DummyExecutionProvider(ExecutionProvider):
-    """No-op execution provider used until the IBKR execution provider is built."""
-
-    async def connect(self) -> None:  # pragma: no cover
-        pass
-
-    async def disconnect(self) -> None:  # pragma: no cover
-        pass
-
-    async def place_order(self, intent: ExecutionIntent) -> str:  # pragma: no cover
-        _logger.warning(
-            "dummy execution provider — order not placed",
-            instrument=intent.instrument.symbol,
-            side=intent.side.value,
-            quantity=str(intent.quantity),
-        )
-        return "DUMMY-ORDER"
-
-    async def cancel_order(self, order_id: str) -> None:  # pragma: no cover
-        pass
-
-    @property
-    def is_connected(self) -> bool:  # pragma: no cover
-        return False

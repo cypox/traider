@@ -1,10 +1,12 @@
 """IBKR metadata provider via ib_async."""
 
+from __future__ import annotations
+
 from datetime import date, datetime
 from decimal import Decimal
+from typing import TYPE_CHECKING
 
 import structlog
-from ib_async import IB
 from ib_async import ContractDetails as IbContractDetails
 from ib_async import Stock as IbStock
 
@@ -13,8 +15,11 @@ from bot.core.money import Money
 from bot.events.bus import EventBus
 from bot.providers.base import MetadataProvider
 from bot.providers.errors import InstrumentNotFoundError
-from bot.providers.ibkr.market_data import _instrument_to_contract
+from bot.providers.ibkr.utils import instrument_to_contract
 from bot.providers.models import ContractDetails
+
+if TYPE_CHECKING:
+    from bot.providers.ibkr.market_data import IBKRMarketDataProvider
 
 _logger = structlog.get_logger(__name__)
 
@@ -30,13 +35,18 @@ def _parse_maturity(maturity_str: str) -> date:
 class IBKRMetadataProvider(MetadataProvider):
     """Retrieves instrument and contract metadata from IBKR via ib_async."""
 
-    def __init__(self, ib: IB, event_bus: EventBus) -> None:
-        self._ib = ib
+    def __init__(
+        self,
+        market_data_provider: IBKRMarketDataProvider,
+        event_bus: EventBus,
+    ) -> None:
+        self._market_data_provider = market_data_provider
         self._event_bus = event_bus
 
     async def get_instrument(self, symbol: str, exchange: str) -> Instrument:
         """Look up an equity instrument by symbol and exchange."""
-        results: list[IbContractDetails] = await self._ib.reqContractDetailsAsync(
+        ib = self._market_data_provider.ib
+        results: list[IbContractDetails] = await ib.reqContractDetailsAsync(
             IbStock(symbol, exchange)
         )
         if not results:
@@ -54,8 +64,9 @@ class IBKRMetadataProvider(MetadataProvider):
 
     async def get_contract_details(self, instrument: Instrument) -> ContractDetails:
         """Retrieve full contract details for an instrument."""
-        ib_contract = _instrument_to_contract(instrument)
-        results: list[IbContractDetails] = await self._ib.reqContractDetailsAsync(ib_contract)
+        ib_contract = instrument_to_contract(instrument)
+        ib = self._market_data_provider.ib
+        results: list[IbContractDetails] = await ib.reqContractDetailsAsync(ib_contract)
         if not results:
             raise InstrumentNotFoundError(f"contract details not found for {instrument.symbol!r}")
 

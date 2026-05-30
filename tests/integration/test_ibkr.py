@@ -18,8 +18,9 @@ from bot.core.money import Money
 from bot.events.bus import EventBus
 from bot.events.market import BarEvent, QuoteEvent
 from bot.providers.errors import InstrumentNotFoundError, UnsupportedAssetClassError
-from bot.providers.ibkr.market_data import IBKRMarketDataProvider, _instrument_to_contract
+from bot.providers.ibkr.market_data import IBKRMarketDataProvider
 from bot.providers.ibkr.metadata import IBKRMetadataProvider
+from bot.providers.ibkr.utils import contract_to_instrument, instrument_to_contract
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -87,26 +88,76 @@ def provider(event_bus: EventBus, mock_ib: MagicMock) -> IBKRMarketDataProvider:
 
 class TestInstrumentToContract:
     def test_equity_returns_stock(self) -> None:
-        result = _instrument_to_contract(_equity())
+        result = instrument_to_contract(_equity())
         assert isinstance(result, IbStock)
         assert result.symbol == "SPY"
 
     def test_future_returns_future(self) -> None:
-        result = _instrument_to_contract(_future())
+        result = instrument_to_contract(_future())
         assert isinstance(result, Future)
         assert result.symbol == "ES"
 
     def test_bond_returns_bond(self) -> None:
-        result = _instrument_to_contract(_bond())
+        result = instrument_to_contract(_bond())
         assert isinstance(result, IbBond)
 
     def test_fx_returns_forex(self) -> None:
-        result = _instrument_to_contract(_fx())
+        result = instrument_to_contract(_fx())
         assert isinstance(result, Forex)
 
     def test_crypto_raises_unsupported(self) -> None:
         with pytest.raises(UnsupportedAssetClassError, match="CRYPTO"):
-            _instrument_to_contract(_crypto())
+            instrument_to_contract(_crypto())
+
+
+# ---------------------------------------------------------------------------
+# contract_to_instrument
+# ---------------------------------------------------------------------------
+
+
+class TestContractToInstrument:
+    def _contract(
+        self,
+        sec_type: str,
+        symbol: str = "SPY",
+        currency: str = "USD",
+        exchange: str = "SMART",
+    ) -> MagicMock:
+        c = MagicMock()
+        c.secType = sec_type
+        c.symbol = symbol
+        c.currency = currency
+        c.exchange = exchange
+        return c
+
+    def test_stk_gives_equity(self) -> None:
+        result = contract_to_instrument(self._contract("STK"))
+        assert result is not None
+        assert result.asset_class == AssetClass.EQUITY
+        assert result.symbol == "SPY"
+
+    def test_fut_gives_future(self) -> None:
+        result = contract_to_instrument(self._contract("FUT", symbol="ES", exchange="GLOBEX"))
+        assert result is not None
+        assert result.asset_class == AssetClass.FUTURE
+
+    def test_bond_gives_bond(self) -> None:
+        result = contract_to_instrument(self._contract("BOND", symbol="T"))
+        assert result is not None
+        assert result.asset_class == AssetClass.BOND
+
+    def test_cash_gives_fx(self) -> None:
+        result = contract_to_instrument(self._contract("CASH", symbol="EURUSD"))
+        assert result is not None
+        assert result.asset_class == AssetClass.FX
+
+    def test_opt_returns_none(self) -> None:
+        assert contract_to_instrument(self._contract("OPT")) is None
+
+    def test_empty_exchange_becomes_unknown(self) -> None:
+        result = contract_to_instrument(self._contract("STK", exchange=""))
+        assert result is not None
+        assert result.exchange == "UNKNOWN"
 
 
 # ---------------------------------------------------------------------------
@@ -346,7 +397,9 @@ class TestBarUpdateHandler:
 
 class TestIBKRMetadataProvider:
     def _make_provider(self, mock_ib: MagicMock) -> IBKRMetadataProvider:
-        return IBKRMetadataProvider(ib=mock_ib, event_bus=EventBus())
+        mock_mdp = MagicMock(spec=IBKRMarketDataProvider)
+        mock_mdp.ib = mock_ib
+        return IBKRMetadataProvider(market_data_provider=mock_mdp, event_bus=EventBus())
 
     async def test_get_contract_details_equity(self, mock_ib: MagicMock) -> None:
         cd = IbContractDetails()

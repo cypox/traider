@@ -5,32 +5,15 @@ from datetime import UTC, datetime
 from decimal import Decimal
 
 import structlog
-from ib_async import IB, Bond, Contract, Forex, Future, RealTimeBarList, Stock, Ticker
+from ib_async import IB, RealTimeBarList, Ticker
 
-from bot.core.instruments import AssetClass, Instrument
+from bot.core.instruments import Instrument
 from bot.events.bus import EventBus
 from bot.events.market import BarEvent, QuoteEvent
 from bot.providers.base import MarketDataProvider
-from bot.providers.errors import UnsupportedAssetClassError
+from bot.providers.ibkr.utils import instrument_to_contract
 
 _logger = structlog.get_logger(__name__)
-
-
-def _instrument_to_contract(instrument: Instrument) -> Contract:
-    """Convert a domain ``Instrument`` to an ib_async ``Contract``."""
-    if instrument.asset_class == AssetClass.EQUITY:
-        return Stock(instrument.symbol, "SMART", instrument.currency)
-    if instrument.asset_class == AssetClass.FUTURE:
-        return Future(
-            symbol=instrument.symbol,
-            exchange=instrument.exchange,
-            currency=instrument.currency,
-        )
-    if instrument.asset_class == AssetClass.BOND:
-        return Bond(symbol=instrument.symbol)  # type: ignore[no-untyped-call]
-    if instrument.asset_class == AssetClass.FX:
-        return Forex(instrument.symbol)
-    raise UnsupportedAssetClassError(f"unsupported asset class: {instrument.asset_class!r}")
 
 
 class IBKRMarketDataProvider(MarketDataProvider):
@@ -73,13 +56,18 @@ class IBKRMarketDataProvider(MarketDataProvider):
         self._is_connected = False
         _logger.info("IBKR disconnected")
 
+    @property
+    def ib(self) -> IB:
+        """Expose the IB connection for sibling providers to share."""
+        return self._ib
+
     async def subscribe_quotes(self, instruments: list[Instrument]) -> None:
         """Subscribe to real-time quotes for the given instruments."""
         if not self._handler_registered:
             self._ib.pendingTickersEvent.connect(self._on_pending_tickers)
             self._handler_registered = True
         for instrument in instruments:
-            contract = _instrument_to_contract(instrument)
+            contract = instrument_to_contract(instrument)
             ticker = self._ib.reqMktData(contract, genericTickList="", snapshot=False)
             self._ticker_to_instrument[ticker] = instrument
 
@@ -95,7 +83,7 @@ class IBKRMarketDataProvider(MarketDataProvider):
                 f"got interval_seconds={interval_seconds}"
             )
         for instrument in instruments:
-            contract = _instrument_to_contract(instrument)
+            contract = instrument_to_contract(instrument)
             bars = self._ib.reqRealTimeBars(contract, 5, "MIDPOINT", False)
             bars.updateEvent.connect(self._make_bar_handler(instrument))
 
