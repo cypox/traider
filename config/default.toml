@@ -1,0 +1,21 @@
+[ibkr]
+host = "127.0.0.1"
+port = 7497       # 7497=TWS paper, 7496=TWS live, 4002=Gateway paper, 4001=Gateway live
+client_id = 1
+
+# Paper vs live is determined entirely by which port you connect to.
+# IBKR enforces the boundary at the network layer.
+# The framework logs the active port clearly at startup.
+
+[logging]
+level = "INFO"
+format = "human"  # "human" or "json"
+
+[risk]
+max_position_usd = 10000
+max_portfolio_var_usd = 500
+max_drawdown_pct = 0.05
+
+[backtest]
+slippage_bps = 5
+commission_per_share = 0.005
