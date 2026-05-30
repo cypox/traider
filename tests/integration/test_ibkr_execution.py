@@ -148,9 +148,7 @@ def mock_ib() -> MagicMock:
 def real_mdp(mock_ib: MagicMock, event_bus: EventBus) -> IBKRMarketDataProvider:
     """Real IBKRMarketDataProvider with IB() patched to mock_ib."""
     with patch("bot.providers.ibkr.market_data.IB", return_value=mock_ib):
-        return IBKRMarketDataProvider(
-            host="127.0.0.1", port=7497, client_id=1, event_bus=event_bus
-        )
+        return IBKRMarketDataProvider(host="127.0.0.1", port=7497, client_id=1, event_bus=event_bus)
 
 
 @pytest.fixture

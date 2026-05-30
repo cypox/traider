@@ -457,6 +457,7 @@ def test_bus_multiple_handlers_all_receive_event() -> None:
     assert results == [1, 2]
 
 
+@pytest.mark.filterwarnings("ignore:Remove `format_exc_info`:UserWarning")
 def test_bus_failing_handler_does_not_block_remaining() -> None:
     bus = EventBus()
     good_calls: list[int] = []
